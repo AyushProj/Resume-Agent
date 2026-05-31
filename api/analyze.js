@@ -59,7 +59,9 @@ Respond ONLY in the following JSON format, nothing else, no markdown backticks:
 
       const raw = data.choices[0].message.content.trim()
       const clean = raw.replace(/```json|```/g, "").trim()
-      const fitReport = JSON.parse(clean)
+      const jsonMatch = clean.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error("Could not parse fit report from LLM response")
+      const fitReport = JSON.parse(jsonMatch[0])
 
       return res.status(200).json({ fitReport })
 

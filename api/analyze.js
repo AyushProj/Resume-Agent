@@ -29,15 +29,17 @@ ${resumeText}
 JOB DESCRIPTION:
 ${jobDescription}
 
-Respond ONLY in the following JSON format, nothing else, no markdown backticks:
+IMPORTANT: Respond ONLY with a raw JSON object. No text before it, no text after it, no markdown, no backticks, no explanations whatsoever. Just the JSON object starting with { and ending with }.
+
 {
   "score": <number between 0 and 100>,
   "verdict": <"Strong Fit" | "Partial Fit" | "Not a Fit">,
-  "summary": <one sentence explaining the verdict>,
-  "matched": [<list of 4-6 specific matched skills or experiences>],
-  "missing": [<list of 2-4 gaps or missing skills, empty array if none>]
+  "summary": "<one sentence explaining the verdict>",
+  "matched": ["<matched skill or experience>", "<matched skill or experience>"],
+  "missing": ["<gap or missing skill>", "<gap or missing skill>"]
 }
 `
+
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -46,8 +48,17 @@ Respond ONLY in the following JSON format, nothing else, no markdown backticks:
         },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          temperature: 0.3,
-          messages: [{ role: "user", content: prompt }]
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content: "You are a JSON-only response bot. You never write anything except valid JSON. No prose, no markdown, no backticks. Only raw JSON."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ]
         })
       })
 
@@ -58,10 +69,34 @@ Respond ONLY in the following JSON format, nothing else, no markdown backticks:
       }
 
       const raw = data.choices[0].message.content.trim()
-      const clean = raw.replace(/```json|```/g, "").trim()
-      const jsonMatch = clean.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) throw new Error("Could not parse fit report from LLM response")
-      const fitReport = JSON.parse(jsonMatch[0])
+
+      // Strip any markdown fences if they sneak in
+      const stripped = raw
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim()
+
+      // Extract just the { } block — find first { and last }
+      const start = stripped.indexOf("{")
+      const end = stripped.lastIndexOf("}")
+
+      if (start === -1 || end === -1) {
+        throw new Error("No JSON object found in LLM response")
+      }
+
+      const jsonString = stripped.slice(start, end + 1)
+      const fitReport = JSON.parse(jsonString)
+
+      // Validate the shape before returning
+      if (
+        typeof fitReport.score !== "number" ||
+        !fitReport.verdict ||
+        !fitReport.summary ||
+        !Array.isArray(fitReport.matched) ||
+        !Array.isArray(fitReport.missing)
+      ) {
+        throw new Error("LLM returned incomplete fit report")
+      }
 
       return res.status(200).json({ fitReport })
 
@@ -79,6 +114,7 @@ STRICT RULES:
 - Mirror keywords from the job description naturally
 - Keep it concise enough to fit on one page
 - Format it as clean plain text using the structure below
+- Do NOT use markdown, asterisks, hashtags, or backticks anywhere
 
 RESUME:
 ${resumeText}
@@ -86,7 +122,7 @@ ${resumeText}
 JOB DESCRIPTION:
 ${jobDescription}
 
-OUTPUT FORMAT (plain text only, no markdown, no backticks):
+OUTPUT FORMAT (plain text only, no markdown, no backticks, no asterisks):
 [Full Name]
 [Email] | [Phone] | [LinkedIn] | [Location]
 
@@ -118,7 +154,16 @@ EDUCATION
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
           temperature: 0.4,
-          messages: [{ role: "user", content: prompt }]
+          messages: [
+            {
+              role: "system",
+              content: "You are a professional resume writer. You output clean plain text resumes only. No markdown, no asterisks, no hashtags, no backticks. Plain text only."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ]
         })
       })
 
@@ -128,7 +173,13 @@ EDUCATION
         throw new Error(data.error?.message || "Groq API error")
       }
 
-      const generatedResume = data.choices[0].message.content.trim()
+      // Strip any markdown that sneaks in
+      const generatedResume = data.choices[0].message.content
+        .trim()
+        .replace(/```/g, "")
+        .replace(/\*\*/g, "")
+        .replace(/^#+\s/gm, "")
+        .trim()
 
       return res.status(200).json({ generatedResume })
     }

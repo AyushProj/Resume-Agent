@@ -15,6 +15,9 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "API key not configured" })
   }
 
+  // Model is configurable via the GROQ_MODEL env var for easy future migrations
+  const MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b"
+
   try {
     if (mode === "analyze") {
       const prompt = `
@@ -47,7 +50,7 @@ IMPORTANT: Respond ONLY with a raw JSON object. No text before it, no text after
           "Authorization": `Bearer ${GROQ_API_KEY}`
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: MODEL,
           temperature: 0.1,
           messages: [
             {
@@ -68,7 +71,7 @@ IMPORTANT: Respond ONLY with a raw JSON object. No text before it, no text after
         throw new Error(data.error?.message || "Groq API error")
       }
 
-      const raw = data.choices[0].message.content.trim()
+      const raw = (data.choices?.[0]?.message?.content || "").trim()
 
       // Strip any markdown fences if they sneak in
       const stripped = raw
@@ -152,7 +155,7 @@ EDUCATION
           "Authorization": `Bearer ${GROQ_API_KEY}`
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: MODEL,
           temperature: 0.4,
           messages: [
             {
@@ -174,14 +177,21 @@ EDUCATION
       }
 
       // Strip any markdown that sneaks in
-      const generatedResume = data.choices[0].message.content
+      const generatedResume = (data.choices?.[0]?.message?.content || "")
         .trim()
         .replace(/```/g, "")
         .replace(/\*\*/g, "")
         .replace(/^#+\s/gm, "")
         .trim()
 
+      if (!generatedResume) {
+        throw new Error("LLM returned an empty resume")
+      }
+
       return res.status(200).json({ generatedResume })
+
+    } else {
+      return res.status(400).json({ error: "Invalid mode" })
     }
 
   } catch (err) {
